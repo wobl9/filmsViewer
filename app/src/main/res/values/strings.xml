@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">FilmsViewer</string>
+    <string name="empty_content">Пустой список</string>
+    <string name="empty_error">Полноэкранная ошибка</string>
+    <string name="loading_error_text">Ошибка</string>
+    <string name="loading_error_button_text">Повторить</string>
+</resources>
