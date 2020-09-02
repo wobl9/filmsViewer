@@ -8,10 +8,13 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import ru.wobcorp.filmsviewer.data.repositories.FilmsRepository
 import ru.wobcorp.filmsviewer.domain.FilmModel
+import ru.wobcorp.filmsviewer.domain.FilmsLanguage.EN
+import ru.wobcorp.filmsviewer.domain.FilmsLanguage.RUS
 import ru.wobcorp.filmsviewer.utils.pagination.PaginationImpl
 import ru.wobcorp.filmsviewer.utils.pagination.PaginationState
 import ru.wobcorp.filmsviewer.utils.pagination.RequestFactory
 import javax.inject.Inject
+import kotlin.random.Random
 
 interface FilmsListViewModel {
     val paginationState: LiveData<PaginationState<FilmModel>>
@@ -22,7 +25,8 @@ interface FilmsListViewModel {
 }
 
 class FilmsListViewModelImpl @Inject constructor(
-    filmsRequestFactory: FilmsRequestFactory
+    filmsRequestFactory: FilmsRequestFactory,
+    private val filmsRepository: FilmsRepository
 ) : ViewModel(), FilmsListViewModel {
 
     override val paginationState = MutableLiveData<PaginationState<FilmModel>>()
@@ -44,9 +48,13 @@ class FilmsListViewModelImpl @Inject constructor(
 
     override fun refresh() = pagination.refresh()
 
-    override fun filmClicked(film: FilmModel) {
-        //todo
-    }
+    override fun filmClicked(film: FilmModel) = filmsRepository.setLanguage(
+        if (Random.nextBoolean()) {
+            RUS
+        } else {
+            EN
+        }
+    )
 }
 
 class FilmsRequestFactory @Inject constructor(

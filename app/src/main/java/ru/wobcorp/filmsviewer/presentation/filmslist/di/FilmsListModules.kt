@@ -56,6 +56,7 @@ abstract class FilmsListDataModule {
     abstract fun provideMapper(mapper: FilmsMapperImpl): FilmsMapper
 
     @Binds
+    @FilmsListScope
     abstract fun provideRepository(repository: FilmsRepositoryImpl): FilmsRepository
 }
 

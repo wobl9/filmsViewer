@@ -3,6 +3,8 @@ package ru.wobcorp.filmsviewer.data.repositories
 import ru.wobcorp.filmsviewer.data.api.FilmsApiService
 import ru.wobcorp.filmsviewer.data.mappers.FilmsMapper
 import ru.wobcorp.filmsviewer.domain.FilmModel
+import ru.wobcorp.filmsviewer.domain.FilmsLanguage
+import ru.wobcorp.filmsviewer.domain.FilmsLanguage.EN
 import javax.inject.Inject
 
 interface FilmsRepository {
@@ -12,6 +14,7 @@ interface FilmsRepository {
     }
 
     suspend fun getFilms(page: Int = FIRST_PAGE): List<FilmModel>
+    fun setLanguage(language: FilmsLanguage)
 }
 
 class FilmsRepositoryImpl @Inject constructor(
@@ -19,7 +22,13 @@ class FilmsRepositoryImpl @Inject constructor(
     private val mapper: FilmsMapper
 ) : FilmsRepository {
 
-    override suspend fun getFilms(page: Int) = api.getFilms(page)
+    private var language = EN
+
+    override suspend fun getFilms(page: Int) = api.getFilms(page, language.query)
         .let(mapper::sourceToDomain)
         .films
+
+    override fun setLanguage(language: FilmsLanguage) {
+        this.language = language
+    }
 }
