@@ -4,17 +4,12 @@ import ru.wobcorp.filmsviewer.data.api.FilmsApiService
 import ru.wobcorp.filmsviewer.data.mappers.FilmsMapper
 import ru.wobcorp.filmsviewer.domain.FilmModel
 import ru.wobcorp.filmsviewer.domain.FilmsLanguage
-import ru.wobcorp.filmsviewer.domain.FilmsLanguage.EN
 import javax.inject.Inject
 
 interface FilmsRepository {
-
-    private companion object {
-        const val FIRST_PAGE = 1
-    }
-
-    suspend fun getFilms(page: Int = FIRST_PAGE): List<FilmModel>
-    fun setLanguage(language: FilmsLanguage)
+    suspend fun getPopularFilms(page: Int, language: FilmsLanguage): List<FilmModel>
+    suspend fun getTopRatedFilms(page: Int, language: FilmsLanguage): List<FilmModel>
+    suspend fun getUpcomingFilms(page: Int, language: FilmsLanguage): List<FilmModel>
 }
 
 class FilmsRepositoryImpl @Inject constructor(
@@ -22,13 +17,18 @@ class FilmsRepositoryImpl @Inject constructor(
     private val mapper: FilmsMapper
 ) : FilmsRepository {
 
-    private var language = EN
-
-    override suspend fun getFilms(page: Int) = api.getFilms(page, language.query)
+    override suspend fun getPopularFilms(page: Int, language: FilmsLanguage) = api
+        .getPopularFilms(page, language.query)
         .let(mapper::sourceToDomain)
         .films
 
-    override fun setLanguage(language: FilmsLanguage) {
-        this.language = language
-    }
+    override suspend fun getTopRatedFilms(page: Int, language: FilmsLanguage): List<FilmModel> =
+        api.getTopFilms(page, language.query)
+            .let(mapper::sourceToDomain)
+            .films
+
+    override suspend fun getUpcomingFilms(page: Int, language: FilmsLanguage): List<FilmModel> =
+        api.getUpcomingFilms(page, language.query)
+            .let(mapper::sourceToDomain)
+            .films
 }

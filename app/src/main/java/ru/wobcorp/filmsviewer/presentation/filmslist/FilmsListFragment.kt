@@ -70,7 +70,6 @@ class FilmsListFragment : Fragment() {
             swipeLayout.setOnRefreshListener {
                 viewModel.refresh()
             }
-
             filmsRecycler.onItemReached { viewModel.onReachedItemPosition(it) }
         }
 
@@ -88,9 +87,9 @@ class FilmsListFragment : Fragment() {
 
     private fun handleState(state: PaginationState<FilmModel>) {
         adapter.items = when (state) {
-            PaginationState.Empty -> emptyList()
-            PaginationState.EmptyLoading -> listOf(EmptyLoading)
-            PaginationState.EmptyData -> listOf(R.string.empty_content)
+            is PaginationState.Empty -> listOf(R.string.empty_content)
+            is PaginationState.EmptyLoading -> listOf(EmptyLoading)
+            is PaginationState.EmptyData -> listOf(R.string.empty_content)
             is PaginationState.EmptyError -> listOf(EmptyError)
             is PaginationState.Content -> state.content.map { it.toUi() }
             is PaginationState.FullContent -> state.content.map { it.toUi() }

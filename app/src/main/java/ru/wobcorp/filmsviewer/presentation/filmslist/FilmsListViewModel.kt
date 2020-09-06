@@ -13,8 +13,9 @@ import ru.wobcorp.filmsviewer.domain.FilmsLanguage.RUS
 import ru.wobcorp.filmsviewer.utils.pagination.PaginationImpl
 import ru.wobcorp.filmsviewer.utils.pagination.PaginationState
 import ru.wobcorp.filmsviewer.utils.pagination.RequestFactory
+import ru.wobcorp.filmsviewer.utils.pagination.Source
+import timber.log.Timber
 import javax.inject.Inject
-import kotlin.random.Random
 
 interface FilmsListViewModel {
     val paginationState: LiveData<PaginationState<FilmModel>>
@@ -25,13 +26,18 @@ interface FilmsListViewModel {
 }
 
 class FilmsListViewModelImpl @Inject constructor(
-    filmsRequestFactory: FilmsRequestFactory,
-    private val filmsRepository: FilmsRepository
+    filmsRequestFactory: FilmsRequestFactory
 ) : ViewModel(), FilmsListViewModel {
 
     override val paginationState = MutableLiveData<PaginationState<FilmModel>>()
 
-    private val pagination = PaginationImpl(viewModelScope, 20, filmsRequestFactory)
+    private val pagination = PaginationImpl(
+        scope = viewModelScope,
+        sources = arrayOf
+            (Source(1, 20), Source(1, 20), Source(1, 20)
+        ),
+        requestFactory = filmsRequestFactory
+    )
 
     override fun onReachedItemPosition(position: Int) = pagination.onItemReached(position)
 
@@ -39,6 +45,7 @@ class FilmsListViewModelImpl @Inject constructor(
         pagination.start()
         viewModelScope.launch {
             pagination.state.collect { state ->
+                Timber.d(state.toString())
                 paginationState.value = state
             }
         }
@@ -48,17 +55,29 @@ class FilmsListViewModelImpl @Inject constructor(
 
     override fun refresh() = pagination.refresh()
 
-    override fun filmClicked(film: FilmModel) = filmsRepository.setLanguage(
-        if (Random.nextBoolean()) {
-            RUS
-        } else {
-            EN
-        }
-    )
+    override fun filmClicked(film: FilmModel) = Unit
+
+    override fun onCleared() {
+        pagination.clear()
+        super.onCleared()
+    }
 }
 
 class FilmsRequestFactory @Inject constructor(
     private val repository: FilmsRepository
 ) : RequestFactory<FilmModel> {
-    override suspend fun create(page: Int): List<FilmModel> = repository.getFilms(page)
+
+    private companion object {
+        const val ENGLISH_POPULAR_FILMS = 0
+        const val RUSSIAN_TOP_RATED_FILMS = 1
+    }
+
+    override suspend fun create(limit: Int, offset: Int, sourceIndex: Int): List<FilmModel> {
+        val page = offset / limit
+        return when (sourceIndex) {
+            ENGLISH_POPULAR_FILMS -> repository.getPopularFilms(language = EN, page = page).take(1)
+            RUSSIAN_TOP_RATED_FILMS -> repository.getTopRatedFilms(language = RUS, page = page).take(0)
+            else -> repository.getUpcomingFilms(language = EN, page = page)
+        }
+    }
 }
