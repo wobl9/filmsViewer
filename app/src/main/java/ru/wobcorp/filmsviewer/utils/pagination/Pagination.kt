@@ -39,10 +39,10 @@ class PaginationImpl<T : Any> constructor(
 
     private var currentSourceIndex = INITIAL_SOURCE_INDEX
 
+    private val initialPage = sources.first().initialPage
+
     private val currentPage
         get() = state.value.page
-
-    private val initialPage = sources.first().initialPage
 
     private val _state = MutableStateFlow<PaginationState<T>>(
         Empty(content = emptyList(), page = initialPage)
@@ -54,8 +54,11 @@ class PaginationImpl<T : Any> constructor(
     private val halfOfPage
         get() = pageSize / 2
 
-    private val allSourcesHasEmptyContent
-        get() = state.value is Empty && currentSourceIndex == sources.lastIndex
+    private val isLastSource
+        get() = currentSourceIndex == sources.lastIndex
+
+    private val contentSize
+        get() = state.value.content.size
 
     init {
         require(sources.isNotEmpty()) { "At least one Source of data required" }
@@ -67,8 +70,12 @@ class PaginationImpl<T : Any> constructor(
                 updateState { EmptyLoading(emptyList(), initialPage) }
                 loadPage(initialPage)
             }
+            initialList.isEmpty() && isLastSource.not() -> {
+                updateState { EmptyData() }
+                checkoutSource()
+            }
             initialList.isEmpty() -> {
-                updateState { Empty() }
+                updateState { EmptyData() }
             }
             initialList.size < pageSize -> {
                 updateState { FullContent(initialList, currentPage) }
@@ -80,11 +87,15 @@ class PaginationImpl<T : Any> constructor(
     }
 
     override fun onItemReached(position: Int) {
-        if (state.value is Content && state.value.content.size - position + currentSourceStartPosition < halfOfPage) {
-            updateState { currentState ->
-                LoadingPage(currentState.content, currentState.page)
+        val needLoadMore = contentSize - position < halfOfPage
+        when {
+            state.value is Content && needLoadMore -> {
+                updateState { currentState ->
+                    LoadingPage(currentState.content, currentState.page)
+                }
+                loadPage(currentPage + 1)
             }
-            loadPage(currentPage + 1)
+            state.value is FullContent && needLoadMore && isLastSource.not() -> checkoutSource()
         }
     }
 
@@ -102,7 +113,7 @@ class PaginationImpl<T : Any> constructor(
             when (currentState) {
                 is EmptyError -> EmptyLoading(page = initialPage)
                 is LoadingPageError -> LoadingPage(currentState.content, currentState.page + 1)
-                else -> currentState
+                else -> throw IllegalStateException("Impossible to retry in state: $currentState")
             }
         }
         loadPage(currentPage)
@@ -121,12 +132,12 @@ class PaginationImpl<T : Any> constructor(
                     items = requestFactory.create(
                         limit = pageSize,
                         offset = (page) * pageSize,
-                        currentSourceIndex = currentSourceIndex
+                        sourceIndex = currentSourceIndex
                     ),
                     page = page
                 )
             } catch (throwable: Throwable) {
-                onPageLoadingError(throwable)
+                onPageLoadingError(throwable, page)
             }
         }
     }
@@ -140,7 +151,7 @@ class PaginationImpl<T : Any> constructor(
                         page = page
                     )
                 }
-                items.isEmpty() && currentState.content.isEmpty() -> EmptyData(
+                items.isEmpty() && currentState.content.isEmpty() && currentSourceIndex == sources.lastIndex -> EmptyData(
                     content = emptyList(),
                     page = currentState.page
                 )
@@ -151,17 +162,17 @@ class PaginationImpl<T : Any> constructor(
                     )
             }
         }
-        if (state.value is FullContent || allSourcesHasEmptyContent.not()) {
-            checkoutSource()
+        if (state.value is FullContent && isLastSource.not()) {
+            onItemReached((state.value.content.size - items.size) / 2)
         }
     }
 
-    private fun onPageLoadingError(error: Throwable) = updateState { currentState ->
+    private fun onPageLoadingError(error: Throwable, page: Int) = updateState { currentState ->
         when {
             currentState.content.isNotEmpty() -> LoadingPageError(
                 error = error,
                 content = currentState.content,
-                page = currentState.page
+                page = page - 1
             )
             else -> EmptyError(error, initialPage)
         }
@@ -170,11 +181,16 @@ class PaginationImpl<T : Any> constructor(
     private fun checkoutSource() {
         if (currentSourceIndex >= sources.lastIndex) return
         currentSourceIndex++
+        val newSource = sources[currentSourceIndex]
         updateState { currentState ->
             currentSourceStartPosition = currentState.content.size
-            LoadingPage(currentState.content, 0)
+            when {
+                currentState is EmptyData -> EmptyLoading(page = newSource.initialPage)
+                currentState is FullContent && currentState.content.isEmpty() -> EmptyLoading(page = newSource.initialPage)
+                else -> LoadingPage(currentState.content, newSource.initialPage)
+            }
         }
-        loadPage(sources[currentSourceIndex].initialPage)
+        loadPage(newSource.initialPage)
     }
 
     private inline fun updateState(newState: (oldState: PaginationState<T>) -> PaginationState<T>) {
@@ -243,5 +259,9 @@ sealed class PaginationState<out T> {
 class Source(val initialPage: Int, val pageSize: Int)
 
 interface RequestFactory<T> {
-    suspend fun create(limit: Int, offset: Int, currentSourceIndex: Int): List<T> = emptyList()
+    suspend fun create(
+        limit: Int,
+        offset: Int,
+        sourceIndex: Int
+    ): List<T> = emptyList()
 }

@@ -33,8 +33,10 @@ class FilmsListViewModelImpl @Inject constructor(
 
     private val pagination = PaginationImpl(
         scope = viewModelScope,
-        sources = arrayOf
-            (Source(1, 20), Source(1, 20), Source(1, 20)
+        sources = arrayOf(
+            Source(1, 20),
+            Source(1, 20),
+            Source(1, 20)
         ),
         requestFactory = filmsRequestFactory
     )
@@ -42,7 +44,7 @@ class FilmsListViewModelImpl @Inject constructor(
     override fun onReachedItemPosition(position: Int) = pagination.onItemReached(position)
 
     init {
-        pagination.start()
+        pagination.start(emptyList())
         viewModelScope.launch {
             pagination.state.collect { state ->
                 Timber.d(state.toString())
@@ -72,11 +74,15 @@ class FilmsRequestFactory @Inject constructor(
         const val RUSSIAN_TOP_RATED_FILMS = 1
     }
 
-    override suspend fun create(limit: Int, offset: Int, sourceIndex: Int): List<FilmModel> {
+    override suspend fun create(
+        limit: Int,
+        offset: Int,
+        sourceIndex: Int
+    ): List<FilmModel> {
         val page = offset / limit
         return when (sourceIndex) {
-            ENGLISH_POPULAR_FILMS -> repository.getPopularFilms(language = EN, page = page).take(1)
-            RUSSIAN_TOP_RATED_FILMS -> repository.getTopRatedFilms(language = RUS, page = page).take(0)
+            ENGLISH_POPULAR_FILMS -> repository.getPopularFilms(language = EN, page = page)
+            RUSSIAN_TOP_RATED_FILMS -> repository.getTopRatedFilms(language = RUS, page = page)
             else -> repository.getUpcomingFilms(language = EN, page = page)
         }
     }

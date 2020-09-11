@@ -9,9 +9,6 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Observer
 import androidx.lifecycle.ViewModelProvider
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import androidx.recyclerview.widget.RecyclerView.SCROLL_STATE_DRAGGING
 import com.bumptech.glide.Glide
 import com.hannesdorfmann.adapterdelegates4.AsyncListDifferDelegationAdapter
 import com.hannesdorfmann.adapterdelegates4.dsl.adapterDelegateViewBinding
@@ -26,7 +23,6 @@ import ru.wobcorp.filmsviewer.presentation.models.toUi
 import ru.wobcorp.filmsviewer.utils.glide.RemoteImage
 import ru.wobcorp.filmsviewer.utils.list.*
 import ru.wobcorp.filmsviewer.utils.pagination.PaginationState
-import timber.log.Timber
 import javax.inject.Inject
 
 class FilmsListFragment : Fragment() {
@@ -70,7 +66,6 @@ class FilmsListFragment : Fragment() {
             swipeLayout.setOnRefreshListener {
                 viewModel.refresh()
             }
-            filmsRecycler.onItemReached { viewModel.onReachedItemPosition(it) }
         }
 
         viewModel.paginationState.observe(viewLifecycleOwner, Observer { state ->
@@ -100,7 +95,6 @@ class FilmsListFragment : Fragment() {
             }
         }
         binding.swipeLayout.isRefreshing = false
-        Timber.d("$state  size: ${adapter.items}")
     }
 
     private fun filmsDelegate(
@@ -118,17 +112,9 @@ class FilmsListFragment : Fragment() {
                     .into(posterImage)
             }
         }
-    }
 
-    private inline fun RecyclerView.onItemReached(crossinline action: (position: Int) -> Unit) {
-        addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            override fun onScrollStateChanged(recyclerView: RecyclerView, state: Int) {
-                super.onScrollStateChanged(recyclerView, state)
-                if (state == SCROLL_STATE_DRAGGING) return
-                val position =
-                    (recyclerView.layoutManager as LinearLayoutManager).findLastVisibleItemPosition()
-                action.invoke(position)
-            }
-        })
+        onViewAttachedToWindow {
+            viewModel.onReachedItemPosition(adapterPosition)
+        }
     }
 }
