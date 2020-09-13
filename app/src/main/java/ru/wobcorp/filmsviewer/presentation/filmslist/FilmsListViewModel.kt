@@ -10,10 +10,7 @@ import ru.wobcorp.filmsviewer.data.repositories.FilmsRepository
 import ru.wobcorp.filmsviewer.domain.FilmModel
 import ru.wobcorp.filmsviewer.domain.FilmsLanguage.EN
 import ru.wobcorp.filmsviewer.domain.FilmsLanguage.RUS
-import ru.wobcorp.filmsviewer.utils.pagination.PaginationImpl
-import ru.wobcorp.filmsviewer.utils.pagination.PaginationState
-import ru.wobcorp.filmsviewer.utils.pagination.RequestFactory
-import ru.wobcorp.filmsviewer.utils.pagination.Source
+import ru.wobcorp.filmsviewer.utils.pagination.*
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -44,7 +41,7 @@ class FilmsListViewModelImpl @Inject constructor(
     override fun onReachedItemPosition(position: Int) = pagination.onItemReached(position)
 
     init {
-        pagination.start(emptyList())
+        pagination.start()
         viewModelScope.launch {
             pagination.state.collect { state ->
                 Timber.d(state.toString())
@@ -78,12 +75,30 @@ class FilmsRequestFactory @Inject constructor(
         limit: Int,
         offset: Int,
         sourceIndex: Int
-    ): List<FilmModel> {
+    ): Page<FilmModel> {
         val page = offset / limit
         return when (sourceIndex) {
-            ENGLISH_POPULAR_FILMS -> repository.getPopularFilms(language = EN, page = page)
-            RUSSIAN_TOP_RATED_FILMS -> repository.getTopRatedFilms(language = RUS, page = page)
-            else -> repository.getUpcomingFilms(language = EN, page = page)
+            ENGLISH_POPULAR_FILMS -> Page(
+                list = repository.getPopularFilms(
+                    language = EN,
+                    page = page
+                ),
+                totalPages = 2
+            )
+            RUSSIAN_TOP_RATED_FILMS -> Page(
+                list = repository.getTopRatedFilms(
+                    language = RUS,
+                    page = page
+                ),
+                totalPages = 2
+            )
+            else -> Page(
+                list = repository.getUpcomingFilms(
+                    language = EN,
+                    page = page
+                ),
+                totalPages = 2
+            )
         }
     }
 }

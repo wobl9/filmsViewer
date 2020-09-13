@@ -7,11 +7,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import ru.wobcorp.filmsviewer.utils.pagination.PaginationState.*
+import timber.log.Timber
 
 @ExperimentalCoroutinesApi
 interface Pagination<T : Any> {
     val state: StateFlow<PaginationState<T>>
-    fun start(initialList: List<T>? = null)
+    fun start(page: Page<T>? = null)
     fun onItemReached(position: Int)
     fun refresh()
     fun retry()
@@ -26,16 +27,15 @@ class PaginationImpl<T : Any> constructor(
 ) : Pagination<T> {
 
     private companion object {
-        const val DEFAULT_SOURCE_START_POSITION = 0
         const val INITIAL_SOURCE_INDEX = 0
+        const val INTERNAL_ERROR = "Internal pagination error."
+        const val LOAD_TRIGGER = 10
     }
 
     override val state: StateFlow<PaginationState<T>>
         get() = _state
 
     private var request: Job? = null
-
-    private var currentSourceStartPosition: Int = DEFAULT_SOURCE_START_POSITION
 
     private var currentSourceIndex = INITIAL_SOURCE_INDEX
 
@@ -51,20 +51,21 @@ class PaginationImpl<T : Any> constructor(
     private val pageSize
         get() = sources[currentSourceIndex].pageSize
 
-    private val halfOfPage
-        get() = pageSize / 2
-
     private val isLastSource
         get() = currentSourceIndex == sources.lastIndex
 
     private val contentSize
         get() = state.value.content.size
 
+    private val currentSourceInitialPage
+        get() = sources[currentSourceIndex].initialPage
+
     init {
         require(sources.isNotEmpty()) { "At least one Source of data required" }
     }
 
-    override fun start(initialList: List<T>?) {
+    override fun start(page: Page<T>?) {
+        val initialList = page?.list
         when {
             initialList == null -> {
                 updateState { EmptyLoading(emptyList(), initialPage) }
@@ -72,30 +73,43 @@ class PaginationImpl<T : Any> constructor(
             }
             initialList.isEmpty() && isLastSource.not() -> {
                 updateState { EmptyData() }
-                checkoutSource()
+                onItemReached(0)
             }
             initialList.isEmpty() -> {
                 updateState { EmptyData() }
             }
-            initialList.size < pageSize -> {
+            initialList.size < pageSize && isLastSource -> {
                 updateState { FullContent(initialList, currentPage) }
             }
-            else -> {
-                updateState { Content(initialList, currentPage) }
+            initialList.size < pageSize && isLastSource.not() -> {
+                updateState { Content(initialList, currentPage, true) }
             }
+            initialList.size == pageSize -> {
+                updateState { Content(initialList, currentPage, page.totalPages == currentPage) }
+            }
+            else -> throw IllegalStateException("$INTERNAL_ERROR Invalid initial state:${state.value} ")
         }
     }
 
     override fun onItemReached(position: Int) {
-        val needLoadMore = contentSize - position < halfOfPage
+        val needLoadMore = contentSize - position < LOAD_TRIGGER
+        val state = state.value
         when {
-            state.value is Content && needLoadMore -> {
-                updateState { currentState ->
-                    LoadingPage(currentState.content, currentState.page)
+            state is Content && needLoadMore -> {
+                if (state.isLastPage && isLastSource.not()) {
+                    checkoutNextSourceAndUpdateState()
+                    loadPage(currentSourceInitialPage)
+                } else {
+                    updateState { currentState ->
+                        LoadingPage(currentState.content, currentState.page)
+                    }
+                    loadPage(currentPage + 1)
                 }
-                loadPage(currentPage + 1)
             }
-            state.value is FullContent && needLoadMore && isLastSource.not() -> checkoutSource()
+            state is EmptyData && isLastSource.not() -> {
+                checkoutNextSourceAndUpdateState()
+                loadPage(currentSourceInitialPage)
+            }
         }
     }
 
@@ -103,7 +117,6 @@ class PaginationImpl<T : Any> constructor(
         updateState {
             Refreshing(emptyList(), initialPage)
         }
-        currentSourceStartPosition = DEFAULT_SOURCE_START_POSITION
         currentSourceIndex = INITIAL_SOURCE_INDEX
         loadPage(initialPage)
     }
@@ -113,7 +126,7 @@ class PaginationImpl<T : Any> constructor(
             when (currentState) {
                 is EmptyError -> EmptyLoading(page = initialPage)
                 is LoadingPageError -> LoadingPage(currentState.content, currentState.page + 1)
-                else -> throw IllegalStateException("Impossible to retry in state: $currentState")
+                else -> throw IllegalStateException("$INTERNAL_ERROR Impossible to retry in state: $currentState")
             }
         }
         loadPage(currentPage)
@@ -128,42 +141,45 @@ class PaginationImpl<T : Any> constructor(
         request?.cancel()
         request = scope.launch {
             try {
+                val response = requestFactory.create(
+                    limit = pageSize,
+                    offset = (page) * pageSize,
+                    sourceIndex = currentSourceIndex
+                )
+                require(response.totalPages >= page) { "Loaded page number: $page is more than total pages: ${response.totalPages}" }
                 onPageLoaded(
-                    items = requestFactory.create(
-                        limit = pageSize,
-                        offset = (page) * pageSize,
-                        sourceIndex = currentSourceIndex
-                    ),
-                    page = page
+                    items = response.list,
+                    page = page,
+                    isLastPage = response.totalPages == page
                 )
             } catch (throwable: Throwable) {
+                Timber.e(throwable)
                 onPageLoadingError(throwable, page)
             }
         }
     }
 
-    private fun onPageLoaded(items: List<T>, page: Int) {
+    private fun onPageLoaded(items: List<T>, page: Int, isLastPage: Boolean) {
         updateState { currentState ->
             when {
-                items.size == pageSize -> {
-                    Content(
-                        content = currentState.content + items,
-                        page = page
-                    )
-                }
-                items.isEmpty() && currentState.content.isEmpty() && currentSourceIndex == sources.lastIndex -> EmptyData(
+                items.isEmpty() && currentState.content.isEmpty() -> EmptyData(
                     content = emptyList(),
                     page = currentState.page
                 )
-                else ->
-                    FullContent(
-                        content = currentState.content + items,
-                        page = currentState.page
-                    )
+                isLastPage && isLastSource -> FullContent(
+                    content = currentState.content + items,
+                    page = currentState.page
+                )
+                else -> Content(
+                    content = currentState.content + items,
+                    page = page,
+                    isLastPage = isLastPage
+                )
             }
         }
-        if (state.value is FullContent && isLastSource.not()) {
-            onItemReached((state.value.content.size - items.size) / 2)
+        //Trying to load next page automatically in case of EmptyData.
+        if (state.value is EmptyData) {
+            onItemReached(0)
         }
     }
 
@@ -178,19 +194,20 @@ class PaginationImpl<T : Any> constructor(
         }
     }
 
-    private fun checkoutSource() {
-        if (currentSourceIndex >= sources.lastIndex) return
+    private fun checkoutNextSourceAndUpdateState() {
+        require(currentSourceIndex < sources.lastIndex) { "$INTERNAL_ERROR Current source is out of bound" }
         currentSourceIndex++
         val newSource = sources[currentSourceIndex]
         updateState { currentState ->
-            currentSourceStartPosition = currentState.content.size
-            when {
-                currentState is EmptyData -> EmptyLoading(page = newSource.initialPage)
-                currentState is FullContent && currentState.content.isEmpty() -> EmptyLoading(page = newSource.initialPage)
-                else -> LoadingPage(currentState.content, newSource.initialPage)
+            when (currentState) {
+                is EmptyData -> EmptyLoading(page = newSource.initialPage)
+                is Content -> LoadingPage(
+                    page = newSource.initialPage,
+                    content = currentState.content
+                )
+                else -> throw IllegalStateException("$INTERNAL_ERROR Impossible to change state when state is: $currentState")
             }
         }
-        loadPage(newSource.initialPage)
     }
 
     private inline fun updateState(newState: (oldState: PaginationState<T>) -> PaginationState<T>) {
@@ -231,7 +248,8 @@ sealed class PaginationState<out T> {
 
     class Content<T : Any>(
         override val content: List<T>,
-        override val page: Int
+        override val page: Int,
+        val isLastPage: Boolean
     ) : PaginationState<T>()
 
     class FullContent<T : Any>(
@@ -263,5 +281,5 @@ interface RequestFactory<T> {
         limit: Int,
         offset: Int,
         sourceIndex: Int
-    ): List<T> = emptyList()
+    ): Page<T>
 }
